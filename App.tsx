@@ -1,1539 +1,2565 @@
-import React, { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import * as Device from 'expo-device';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
 import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
-  View,
-  Pressable,
   TextInput,
-  Alert,
+  View,
 } from 'react-native';
 
-type TabName = 'Home' | 'Team' | 'Tasks' | 'Profile' | 'Add Employee';
+import {
+  NavigationContainer,
+} from '@react-navigation/native';
+
+import {
+  createNativeStackNavigator,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
+
+import {
+  AuthProvider,
+  useAuth,
+} from './AuthContext';
+
+import {
+  createEmployee,
+  deleteEmployee,
+  getApiErrorMessage,
+  getEmployee,
+  getEmployees,
+  updateEmployee,
+  type Employee as ApiEmployee,
+} from './services/api';
+
+/* =========================================================
+   TYPES
+========================================================= */
 
 type Employee = {
   id: number;
   name: string;
-  role: string;
   email: string;
-  initials: string;
-  color: string;
-  status: 'Active' | 'On Leave';
+  phone: string;
+  department: string;
+  designation: string;
 };
 
-const STORAGE_KEY = 'employeeHubEmployees';
-
-const TASKS_STORAGE_KEY = 'employeeHubTasks';
-
-const initialEmployees: Employee[] = [
-  {
-    id: 1,
-    name: 'Ravi Kumar',
-    role: 'Frontend Developer',
-    email: 'ravi@example.com',
-    initials: 'RK',
-    color: '#DCEAFE',
-    status: 'Active',
-  },
-  {
-    id: 2,
-    name: 'Priya Sharma',
-    role: 'UI/UX Designer',
-    email: 'priya@example.com',
-    initials: 'PS',
-    color: '#FCE7F3',
-    status: 'Active',
-  },
-  {
-    id: 3,
-    name: 'Arjun Reddy',
-    role: 'Backend Developer',
-    email: 'arjun@example.com',
-    initials: 'AR',
-    color: '#D1FAE5',
-    status: 'On Leave',
-  },
-  {
-    id: 4,
-    name: 'Sneha Patel',
-    role: 'QA Engineer',
-    email: 'sneha@example.com',
-    initials: 'SP',
-    color: '#FEF3C7',
-    status: 'Active',
-  },
-  {
-    id: 5,
-    name: 'Kiran Rao',
-    role: 'Product Manager',
-    email: 'kiran@example.com',
-    initials: 'KR',
-    color: '#EDE9FE',
-    status: 'Active',
-  },
-  {
-    id: 6,
-    name: 'Ananya Reddy',
-    role: 'Mobile Developer',
-    email: 'ananya@example.com',
-    initials: 'AR',
-    color: '#FFE4D6',
-    status: 'Active',
-  },
-];
-
-const initialTasks = [
-  {
-    id: 1,
-    title: 'Complete dashboard UI',
-    project: 'Employee Hub',
-    priority: 'High',
-    done: false,
-  },
-  {
-    id: 2,
-    title: 'Review team feedback',
-    project: 'Team Management',
-    priority: 'Medium',
-    done: false,
-  },
-  {
-    id: 3,
-    title: 'Update employee records',
-    project: 'HR Operations',
-    priority: 'Low',
-    done: true,
-  },
-];
-
-export default function App() {
-  const [activeTab, setActiveTab] = useState<TabName>('Home');
-
-  // Load previously saved employees when the app starts.
-  const [employees, setEmployees] = useState<Employee[]>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const savedEmployees =
-          window.localStorage.getItem(STORAGE_KEY);
-
-        if (savedEmployees !== null) {
-          const parsedEmployees: unknown = JSON.parse(savedEmployees);
-
-          if (Array.isArray(parsedEmployees)) {
-            return parsedEmployees as Employee[];
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Unable to load employees:', error);
-    }
-
-    return initialEmployees;
-  });
-
-  const [showAll, setShowAll] = useState(false);
-
-  const [employeeName, setEmployeeName] = useState('');
-  const [employeeRole, setEmployeeRole] = useState('');
-  const [employeeEmail, setEmployeeEmail] = useState('');
-  const [searchText, setSearchText] = useState('');
-
-  
-const [tasks, setTasks] = useState(() => {
-  try {
-    if (typeof window !== 'undefined') {
-      const savedTasks = window.localStorage.getItem(TASKS_STORAGE_KEY);
-
-      if (savedTasks) {
-        const parsedTasks: unknown = JSON.parse(savedTasks);
-
-        if (Array.isArray(parsedTasks)) {
-          return parsedTasks as typeof initialTasks;
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('Could not load saved tasks:', error);
-  }
-
-  return initialTasks;
-});
-
-  const [pendingDeleteId, setPendingDeleteId] =
-    useState<number | null>(null);
-
-  // Save the employee list whenever it changes.
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify(employees)
-        );
-      }
-    } catch (error) {
-      console.warn('Unable to save employees:', error);
-    }
-  }, [employees]);
-
-  const addEmployee = () => {
-    if (
-      !employeeName.trim() ||
-      !employeeRole.trim() ||
-      !employeeEmail.trim()
-    ) {
-      window.alert('Please fill in all employee details.');
-return;
-    }
-
-    const newEmployee: Employee = {
-      id: Date.now(),
-      name: employeeName.trim(),
-      role: employeeRole.trim(),
-      email: employeeEmail.trim(),
-      initials: employeeName
-        .trim()
-        .split(/\s+/)
-        .map((part) => part[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase(),
-      color: '#DCEAFE',
-      status: 'Active',
+type RootStackParamList = {
+  Login: undefined;
+  Home: undefined;
+  EmployeeList: {
+    change?: {
+      type: 'add' | 'update';
+      employee: Employee;
     };
-
-    setEmployees((previous) => [...previous, newEmployee]);
-
-    setEmployeeName('');
-    setEmployeeRole('');
-    setEmployeeEmail('');
-    setShowAll(true);
-    setSearchText('');
-    setActiveTab('Team');
-
-    Alert.alert('Success', 'Employee added to your team!');
+  } | undefined;
+  EmployeeDetails: {
+    employee: Employee;
   };
-
-  const confirmDelete = (employee: Employee) => {
-    setPendingDeleteId(employee.id);
+  AddEmployee: undefined;
+  EditEmployee: {
+    employee: Employee;
   };
-
-  const deleteEmployee = () => {
-    if (pendingDeleteId === null) return;
-
-    setEmployees((previous) =>
-      previous.filter(
-        (employee) => employee.id !== pendingDeleteId
-      )
-    );
-
-    setPendingDeleteId(null);
-  };
-
-  
-const toggleTask = (taskId: number) => {
-  setTasks((previous) => {
-    const updatedTasks = previous.map((task) =>
-      task.id === taskId
-        ? { ...task, done: !task.done }
-        : task
-    );
-
-    try {
-      window.localStorage.setItem(
-        TASKS_STORAGE_KEY,
-        JSON.stringify(updatedTasks)
-      );
-    } catch (error) {
-      console.warn('Could not save tasks:', error);
-    }
-
-    return updatedTasks;
-  });
+  Profile: undefined;
 };
 
-  const renderHeader = (title: string, subtitle: string) => (
-    <View style={styles.pageHeader}>
-      <View style={styles.headerTextContainer}>
-        <Text style={styles.eyebrow}>EMPLOYEE HUB</Text>
-        <Text style={styles.pageTitle}>{title}</Text>
-        <Text style={styles.pageSubtitle}>{subtitle}</Text>
-      </View>
+type LoginProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Login'
+>;
 
-      <View style={styles.profileCircle}>
-        <Text style={styles.profileInitial}>P</Text>
+type HomeProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Home'
+>;
+
+type EmployeeListProps = NativeStackScreenProps<
+  RootStackParamList,
+  'EmployeeList'
+>;
+
+type EmployeeDetailsProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'EmployeeDetails'
+  >;
+
+type AddEmployeeProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'AddEmployee'
+  >;
+
+type EditEmployeeProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'EditEmployee'
+  >;
+
+type ProfileProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Profile'
+>;
+
+const Stack =
+  createNativeStackNavigator<RootStackParamList>();
+
+/* =========================================================
+   API MAPPER
+========================================================= */
+
+function mapApiEmployee(
+  user: ApiEmployee,
+): Employee {
+  return {
+    id: user.id,
+    name: `${user.firstName} ${user.lastName}`,
+    email: user.email,
+    phone: user.phone || '',
+    department:
+      user.company?.department ||
+      'Engineering',
+    designation:
+      user.company?.title ||
+      'Employee',
+  };
+}
+
+/* =========================================================
+   LOGIN
+========================================================= */
+
+function LoginScreen({}: LoginProps) {
+  const { login } = useAuth();
+
+  const [username, setUsername] =
+    useState('emilys');
+
+  const [password, setPassword] =
+    useState('emilyspass');
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const handleLogin = async () => {
+    if (
+      !username.trim() ||
+      !password.trim()
+    ) {
+      setError(
+        'Please enter username and password.',
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      await login(
+        username.trim(),
+        password.trim(),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Login failed. Please try again.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={
+          Platform.OS === 'ios'
+            ? 'padding'
+            : undefined
+        }
+      >
+        <ScrollView
+          contentContainerStyle={
+            styles.loginContainer
+          }
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.logoCircle}>
+            <Text style={styles.logoText}>
+              E
+            </Text>
+          </View>
+
+          <Text style={styles.loginTitle}>
+            Employee Hub
+          </Text>
+
+          <Text style={styles.loginSubtitle}>
+            Sign in to manage employees
+          </Text>
+
+          <Text style={styles.label}>
+            Username
+          </Text>
+
+          <TextInput
+            value={username}
+            onChangeText={setUsername}
+            placeholder="Enter username"
+            autoCapitalize="none"
+            style={styles.input}
+            editable={!loading}
+          />
+
+          <Text style={styles.label}>
+            Password
+          </Text>
+
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter password"
+            secureTextEntry
+            style={styles.input}
+            editable={!loading}
+          />
+
+          {error ? (
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+          ) : null}
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              loading &&
+                styles.disabledButton,
+            ]}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                Login
+              </Text>
+            )}
+          </Pressable>
+
+          <View style={styles.demoBox}>
+            <Text style={styles.demoTitle}>
+              Demo Login
+            </Text>
+
+            <Text style={styles.demoText}>
+              Username: emilys
+            </Text>
+
+            <Text style={styles.demoText}>
+              Password: emilyspass
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   HOME
+========================================================= */
+
+function HomeScreen({
+  navigation,
+}: HomeProps) {
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={
+          styles.screenContainer
+        }
+      >
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.greeting}>
+              Welcome back 👋
+            </Text>
+
+            <Text style={styles.pageTitle}>
+              Employee Dashboard
+            </Text>
+          </View>
+
+          <Pressable
+            style={styles.logoutButton}
+            onPress={handleLogout}
+          >
+            <Text style={styles.logoutText}>
+              Logout
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.dashboardCard}>
+          <Text style={styles.dashboardIcon}>
+            👥
+          </Text>
+
+          <Text style={styles.dashboardTitle}>
+            Employee Management
+          </Text>
+
+          <Text
+            style={
+              styles.dashboardDescription
+            }
+          >
+            Manage employee records using
+            REST API operations.
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.menuCard}
+          onPress={() =>
+            navigation.navigate(
+              'EmployeeList',
+            )
+          }
+        >
+          <Text style={styles.menuIcon}>
+            👨‍💼
+          </Text>
+
+          <View
+            style={
+              styles.menuTextContainer
+            }
+          >
+            <Text style={styles.menuTitle}>
+              Employee List
+            </Text>
+
+            <Text
+              style={styles.menuSubtitle}
+            >
+              View, edit and delete employees
+            </Text>
+          </View>
+
+          <Text style={styles.arrow}>
+            ›
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.menuCard}
+          onPress={() =>
+            navigation.navigate(
+              'AddEmployee',
+            )
+          }
+        >
+          <Text style={styles.menuIcon}>
+            ➕
+          </Text>
+
+          <View
+            style={
+              styles.menuTextContainer
+            }
+          >
+            <Text style={styles.menuTitle}>
+              Add Employee
+            </Text>
+
+            <Text
+              style={styles.menuSubtitle}
+            >
+              Create a new employee
+            </Text>
+          </View>
+
+          <Text style={styles.arrow}>
+            ›
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.menuCard}
+          onPress={() =>
+            navigation.navigate(
+              'Profile',
+            )
+          }
+        >
+          <Text style={styles.menuIcon}>
+            👤
+          </Text>
+
+          <View
+            style={
+              styles.menuTextContainer
+            }
+          >
+            <Text style={styles.menuTitle}>
+              Profile
+            </Text>
+
+            <Text
+              style={styles.menuSubtitle}
+            >
+              View account and logout
+            </Text>
+          </View>
+
+          <Text style={styles.arrow}>
+            ›
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   EMPLOYEE LIST
+========================================================= */
+
+function EmployeeListScreen({
+  navigation,
+  route,
+}: EmployeeListProps) {
+  const [employees, setEmployees] =
+    useState<Employee[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [loadingMore, setLoadingMore] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const [total, setTotal] =
+    useState(0);
+
+  const [skip, setSkip] =
+    useState(0);
+
+  const [search, setSearch] =
+    useState('');
+
+  const LIMIT = 10;
+
+  const loadEmployees = useCallback(
+    async (refresh = false) => {
+      try {
+        setError('');
+
+        if (refresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        const response =
+          await getEmployees(
+            LIMIT,
+            0,
+          );
+
+        const mapped =
+          response.users.map(
+            mapApiEmployee,
+          );
+
+        setEmployees(mapped);
+        setTotal(response.total);
+        setSkip(mapped.length);
+      } catch (err) {
+        setError(
+          getApiErrorMessage(err),
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
+  useEffect(() => {
+    const change = route.params?.change;
+
+    if (!change) {
+      return;
+    }
+
+    setEmployees(current => {
+      if (change.type === 'add') {
+        const alreadyExists = current.some(
+          item => item.id === change.employee.id,
+        );
+
+        return alreadyExists
+          ? current.map(item =>
+              item.id === change.employee.id
+                ? change.employee
+                : item,
+            )
+          : [change.employee, ...current];
+      }
+
+      return current.map(item =>
+        item.id === change.employee.id
+          ? change.employee
+          : item,
+      );
+    });
+
+    navigation.setParams({
+      change: undefined,
+    });
+  }, [route.params?.change, navigation]);
+
+  const filteredEmployees = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+      return employees;
+    }
+
+    return employees.filter(employee =>
+      [
+        employee.name,
+        employee.email,
+        employee.phone,
+        employee.department,
+        employee.designation,
+      ].some(value =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [employees, search]);
+
+  /*
+    We intentionally do NOT reload automatically
+    every time this screen gets focus.
+
+    This keeps the edited employee visible after
+    returning from Edit Employee.
+  */
+
+  const loadMoreEmployees = async () => {
+    if (
+      loadingMore ||
+      loading ||
+      employees.length >= total
+    ) {
+      return;
+    }
+
+    try {
+      setLoadingMore(true);
+
+      const response =
+        await getEmployees(
+          LIMIT,
+          skip,
+        );
+
+      const newEmployees =
+        response.users.map(
+          mapApiEmployee,
+        );
+
+      setEmployees(current => [
+        ...current,
+        ...newEmployees,
+      ]);
+
+      setSkip(
+        current =>
+          current +
+          newEmployees.length,
+      );
+
+      setTotal(response.total);
+    } catch (err) {
+      setError(
+        getApiErrorMessage(err),
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleDelete = (
+    employee: Employee,
+  ) => {
+    Alert.alert(
+      'Delete Employee',
+      `Are you sure you want to delete ${employee.name}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteEmployee(
+                employee.id,
+              );
+
+              setEmployees(
+                current =>
+                  current.filter(
+                    item =>
+                      item.id !==
+                      employee.id,
+                  ),
+              );
+
+              setTotal(
+                current =>
+                  Math.max(
+                    current - 1,
+                    0,
+                  ),
+              );
+
+              Alert.alert(
+                'Success',
+                'Employee deleted successfully.',
+              );
+            } catch (err) {
+              Alert.alert(
+                'Error',
+                getApiErrorMessage(err),
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const renderEmployee = ({
+    item,
+  }: {
+    item: Employee;
+  }) => (
+    <View style={styles.employeeCard}>
+      <Pressable
+        style={styles.employeeMain}
+        onPress={() =>
+          navigation.navigate(
+            'EmployeeDetails',
+            {
+              employee: item,
+            },
+          )
+        }
+      >
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {item.name
+              .charAt(0)
+              .toUpperCase()}
+          </Text>
+        </View>
+
+        <View
+          style={styles.employeeInfo}
+        >
+          <Text
+            style={styles.employeeName}
+          >
+            {item.name}
+          </Text>
+
+          <Text
+            style={styles.employeeRole}
+          >
+            {item.designation}
+          </Text>
+
+          <Text
+            style={
+              styles.employeeDepartment
+            }
+          >
+            {item.department}
+          </Text>
+
+          <Text
+            style={styles.employeeEmail}
+          >
+            {item.email}
+          </Text>
+        </View>
+      </Pressable>
+
+      <View
+        style={styles.employeeActions}
+      >
+        <Pressable
+          style={styles.viewButton}
+          onPress={() =>
+            navigation.navigate(
+              'EmployeeDetails',
+              {
+                employee: item,
+              },
+            )
+          }
+        >
+          <Text
+            style={styles.viewButtonText}
+          >
+            View
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.editButton}
+          onPress={() =>
+            navigation.navigate(
+              'EditEmployee',
+              {
+                employee: item,
+              },
+            )
+          }
+        >
+          <Text
+            style={styles.editButtonText}
+          >
+            Edit
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.deleteButton}
+          onPress={() =>
+            handleDelete(item)
+          }
+        >
+          <Text
+            style={
+              styles.deleteButtonText
+            }
+          >
+            Delete
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
 
-  const renderEmployee = (
-    employee: Employee,
-    allowDelete = false
-  ) => (
-    <View key={employee.id}>
-      <View style={styles.employeeRow}>
-        <View
-          style={[
-            styles.employeeAvatar,
-            { backgroundColor: employee.color },
-          ]}
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={
+          styles.centerContainer
+        }
+      >
+        <ActivityIndicator size="large" />
+
+        <Text
+          style={styles.loadingText}
         >
-          <Text style={styles.avatarText}>
-            {employee.initials}
+          Loading employees...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.listTopBar}>
+        <View>
+          <Text style={styles.pageTitle}>
+            Employees
+          </Text>
+
+          <Text
+            style={styles.listCount}
+          >
+            Showing {filteredEmployees.length} of{' '}
+            {total}
           </Text>
         </View>
 
-        <View style={styles.employeeInfo}>
-          <Text style={styles.employeeName}>
-            {employee.name}
-          </Text>
-          <Text style={styles.employeeRole}>
-            {employee.role}
-          </Text>
-          <Text style={styles.employeeEmail}>
-            {employee.email}
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.statusBadge,
-            employee.status === 'Active'
-              ? styles.activeBadge
-              : styles.leaveBadge,
-          ]}
+        <Pressable
+          style={styles.addButton}
+          onPress={() =>
+            navigation.navigate(
+              'AddEmployee',
+            )
+          }
         >
           <Text
-            style={[
-              styles.statusText,
-              employee.status === 'Active'
-                ? styles.activeText
-                : styles.leaveText,
-            ]}
+            style={styles.addButtonText}
           >
-            {employee.status}
+            + Add
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.searchContainer}>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by name, email, department..."
+          placeholderTextColor="#9ca3af"
+          style={styles.searchInput}
+        />
+      </View>
+
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text
+            style={styles.errorText}
+          >
+            {error}
+          </Text>
+
+          <Pressable
+            style={styles.retryButton}
+            onPress={() =>
+              loadEmployees(true)
+            }
+          >
+            <Text
+              style={
+                styles.retryButtonText
+              }
+            >
+              Retry
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <FlatList
+        data={filteredEmployees}
+        keyExtractor={item =>
+          item.id.toString()
+        }
+        renderItem={renderEmployee}
+        contentContainerStyle={
+          filteredEmployees.length === 0
+            ? styles.emptyList
+            : styles.listContainer
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() =>
+              loadEmployees(true)
+            }
+          />
+        }
+        onEndReached={
+          loadMoreEmployees
+        }
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          loadingMore ? (
+            <View
+              style={
+                styles.footerLoader
+              }
+            >
+              <ActivityIndicator />
+
+              <Text
+                style={
+                  styles.loadingText
+                }
+              >
+                Loading more employees...
+              </Text>
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <View
+            style={
+              styles.emptyContainer
+            }
+          >
+            <Text
+              style={styles.emptyTitle}
+            >
+              {search.trim()
+                ? 'No matching employees found'
+                : 'No employees found'}
+            </Text>
+
+            <Text
+              style={
+                styles.emptySubtitle
+              }
+            >
+              {search.trim()
+                ? 'Try a different search.'
+                : 'Pull to refresh or add an employee.'}
+            </Text>
+          </View>
+        }
+      />
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   EMPLOYEE DETAILS
+========================================================= */
+
+function EmployeeDetailsScreen({
+  navigation,
+  route,
+}: EmployeeDetailsProps) {
+  const { employee } =
+    route.params;
+
+  const [employeeData, setEmployeeData] =
+    useState(employee);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const loadDetails = async () => {
+    try {
+      setLoading(true);
+
+      const response =
+        await getEmployee(
+          employee.id,
+        );
+
+      setEmployeeData(
+        mapApiEmployee(response),
+      );
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        getApiErrorMessage(err),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDetails();
+  }, [employee.id]);
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={
+          styles.detailsContainer
+        }
+      >
+        <View style={styles.detailsAvatar}>
+          <Text
+            style={
+              styles.detailsAvatarText
+            }
+          >
+            {employeeData.name
+              .charAt(0)
+              .toUpperCase()}
           </Text>
         </View>
 
-        {allowDelete && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Delete ${employee.name}`}
-            style={styles.deleteButton}
-            onPress={() => confirmDelete(employee)}
+        <Text
+          style={styles.detailsName}
+        >
+          {employeeData.name}
+        </Text>
+
+        <Text
+          style={styles.detailsRole}
+        >
+          {employeeData.designation}
+        </Text>
+
+        {loading ? (
+          <ActivityIndicator
+            style={styles.detailsLoader}
+          />
+        ) : null}
+
+        <View
+          style={styles.detailsCard}
+        >
+          <DetailRow
+            label="Email"
+            value={
+              employeeData.email
+            }
+          />
+
+          <DetailRow
+            label="Phone"
+            value={
+              employeeData.phone ||
+              'Not available'
+            }
+          />
+
+          <DetailRow
+            label="Department"
+            value={
+              employeeData.department
+            }
+          />
+
+          <DetailRow
+            label="Designation"
+            value={
+              employeeData.designation
+            }
+          />
+        </View>
+
+        <Pressable
+          style={styles.primaryButton}
+          onPress={() =>
+            navigation.navigate(
+              'EditEmployee',
+              {
+                employee:
+                  employeeData,
+              },
+            )
+          }
+        >
+          <Text
+            style={
+              styles.primaryButtonText
+            }
           >
-            <Text style={styles.deleteButtonText}>
-              Delete
-            </Text>
-          </Pressable>
-        )}
-      </View>
+            Edit Employee
+          </Text>
+        </Pressable>
 
-      {allowDelete && pendingDeleteId === employee.id && (
-        <View style={styles.confirmDeleteCard}>
-          <Text style={styles.confirmDeleteTitle}>
-            Delete this employee?
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() =>
+            navigation.goBack()
+          }
+        >
+          <Text
+            style={
+              styles.secondaryButtonText
+            }
+          >
+            Back to Employee List
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   ADD EMPLOYEE
+========================================================= */
+
+function AddEmployeeScreen({
+  navigation,
+}: AddEmployeeProps) {
+  const [name, setName] =
+    useState('');
+
+  const [email, setEmail] =
+    useState('');
+
+  const [phone, setPhone] =
+    useState('');
+
+  const [department, setDepartment] =
+    useState('');
+
+  const [designation, setDesignation] =
+    useState('');
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const handleAdd = async () => {
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !department.trim() ||
+      !designation.trim()
+    ) {
+      Alert.alert(
+        'Validation',
+        'Please fill all fields.',
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const parts =
+        name.trim().split(' ');
+
+      const firstName =
+        parts.shift() || '';
+
+      const lastName =
+        parts.join(' ') ||
+        'Employee';
+
+      const created = await createEmployee({
+        firstName,
+        lastName,
+        email: email.trim(),
+        phone: phone.trim(),
+        company: {
+          department:
+            department.trim(),
+          title:
+            designation.trim(),
+        },
+      });
+
+      const addedEmployee: Employee = {
+        id: created.id,
+        name: `${firstName} ${lastName}`.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        department: department.trim(),
+        designation: designation.trim(),
+      };
+
+      navigation.popTo('EmployeeList', {
+        change: {
+          type: 'add',
+          employee: addedEmployee,
+        },
+      });
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        getApiErrorMessage(err),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={
+          Platform.OS === 'ios'
+            ? 'padding'
+            : undefined
+        }
+      >
+        <ScrollView
+          contentContainerStyle={
+            styles.formContainer
+          }
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.pageTitle}>
+            Add Employee
           </Text>
 
-          <Text style={styles.confirmDeleteDescription}>
-            {employee.name} will be removed from your team list.
+          <Text style={styles.label}>
+            Name
           </Text>
 
-          <View style={styles.confirmActions}>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Full name"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Email
+          </Text>
+
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Email"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Phone
+          </Text>
+
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Phone"
+            keyboardType="phone-pad"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Department
+          </Text>
+
+          <TextInput
+            value={department}
+            onChangeText={setDepartment}
+            placeholder="Department"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Designation
+          </Text>
+
+          <TextInput
+            value={designation}
+            onChangeText={
+              setDesignation
+            }
+            placeholder="Designation"
+            style={styles.input}
+          />
+
+          <View style={styles.buttonRow}>
             <Pressable
-              style={styles.keepButton}
-              onPress={() => setPendingDeleteId(null)}
+              style={
+                styles.secondaryButton
+              }
+              onPress={() =>
+                navigation.goBack()
+              }
+              disabled={loading}
             >
-              <Text style={styles.keepButtonText}>
+              <Text
+                style={
+                  styles.secondaryButtonText
+                }
+              >
                 Cancel
               </Text>
             </Pressable>
 
             <Pressable
-              style={styles.confirmDeleteButton}
-              onPress={deleteEmployee}
-            >
-              <Text style={styles.confirmDeleteButtonText}>
-                Confirm Delete
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-
-  const renderHome = () => (
-    <>
-      {renderHeader(
-        'Welcome back, Pavani!',
-        'Here is your workspace overview.'
-      )}
-
-      <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>YOUR WORKSPACE</Text>
-
-        <Text style={styles.heroTitle}>
-          Good things happen when teams work together.
-        </Text>
-
-        <Text style={styles.heroDescription}>
-          Keep track of your people, tasks and daily progress in one place.
-        </Text>
-
-        <Pressable
-          style={styles.heroButton}
-          onPress={() => setActiveTab('Team')}
-        >
-          <Text style={styles.heroButtonText}>
-            Explore Team →
-          </Text>
-        </Pressable>
-      </View>
-
-      <Text style={styles.sectionTitle}>Overview</Text>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statIcon}>♧</Text>
-          <Text style={styles.statNumber}>
-            {employees.length}
-          </Text>
-          <Text style={styles.statLabel}>Employees</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statIcon}>✓</Text>
-          <Text style={styles.statNumber}>
-            {
-              employees.filter(
-                (employee) => employee.status === 'Active'
-              ).length
-            }
-          </Text>
-          <Text style={styles.statLabel}>Active Members</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statIcon}>◷</Text>
-          <Text style={styles.statNumber}>
-            {tasks
-              .filter((task) => !task.done)
-              .length.toString()
-              .padStart(2, '0')}
-          </Text>
-          <Text style={styles.statLabel}>Open Tasks</Text>
-        </View>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your Team</Text>
-
-        <Pressable onPress={() => setActiveTab('Team')}>
-          <Text style={styles.linkText}>View Team →</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.card}>
-        {employees
-          .slice(0, 3)
-          .map((employee) => renderEmployee(employee))}
-      </View>
-
-      <Pressable
-        style={styles.primaryButton}
-        onPress={() => setActiveTab('Add Employee')}
-      >
-        <Text style={styles.primaryButtonText}>
-          + Add Employee
-        </Text>
-      </Pressable>
-
-      <View style={styles.noticeCard}>
-        <Text style={styles.noticeIcon}>💡</Text>
-
-        <View style={styles.noticeContent}>
-          <Text style={styles.noticeTitle}>
-            A little reminder
-          </Text>
-
-          <Text style={styles.noticeDescription}>
-            Small steps every day lead to meaningful progress.
-          </Text>
-        </View>
-      </View>
-    </>
-  );
-
-  const renderTeam = () => {
-    const query = searchText.toLowerCase().trim();
-
-    const filteredEmployees = employees.filter((employee) =>
-      employee.name.toLowerCase().includes(query) ||
-      employee.role.toLowerCase().includes(query) ||
-      employee.email.toLowerCase().includes(query)
-    );
-
-    const visibleEmployees = showAll
-      ? filteredEmployees
-      : filteredEmployees.slice(0, 3);
-
-    return (
-      <>
-        {renderHeader(
-          'Our Team',
-          'Meet the people behind the progress.'
-        )}
-
-        <View style={styles.teamSummary}>
-          <View>
-            <Text style={styles.summaryNumber}>
-              {employees.length}
-            </Text>
-            <Text style={styles.summaryLabel}>
-              Employees
-            </Text>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View>
-            <Text style={styles.summaryNumber}>
-              {
-                employees.filter(
-                  (employee) => employee.status === 'Active'
-                ).length
-              }
-            </Text>
-            <Text style={styles.summaryLabel}>Active</Text>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View>
-            <Text style={styles.summaryNumber}>
-              {
-                employees.filter(
-                  (employee) => employee.status === 'On Leave'
-                ).length
-              }
-            </Text>
-            <Text style={styles.summaryLabel}>On Leave</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>
-          Team Members
-        </Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Search name, role or email..."
-          placeholderTextColor="#8993A7"
-          value={searchText}
-          onChangeText={setSearchText}
-        />
-
-        <View style={styles.card}>
-          {visibleEmployees.map((employee) =>
-            renderEmployee(employee, true)
-          )}
-
-          {filteredEmployees.length === 0 && (
-            <Text style={styles.emptyText}>
-              No employees found.
-            </Text>
-          )}
-        </View>
-
-        {filteredEmployees.length > 3 && (
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() =>
-              setShowAll((previous) => !previous)
-            }
-          >
-            <Text style={styles.secondaryButtonText}>
-              {showAll
-                ? 'Show Less ↑'
-                : 'View All Employees →'}
-            </Text>
-          </Pressable>
-        )}
-
-        <Pressable
-          style={styles.primaryButton}
-          onPress={() => setActiveTab('Add Employee')}
-        >
-          <Text style={styles.primaryButtonText}>
-            + Add Employee
-          </Text>
-        </Pressable>
-
-        <Text style={styles.helperText}>
-          Employee details are saved in this browser on this device.
-        </Text>
-      </>
-    );
-  };
-
-  const renderTasks = () => (
-    <>
-      {renderHeader(
-        'My Tasks',
-        'Stay focused and track your progress.'
-      )}
-
-      <View style={styles.taskSummaryCard}>
-        <Text style={styles.taskSummaryTitle}>
-          Your progress
-        </Text>
-
-        <Text style={styles.taskSummaryNumber}>
-          {tasks.filter((task) => task.done).length} of{' '}
-          {tasks.length} completed
-        </Text>
-
-        <View style={styles.progressTrack}>
-          <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${
-                  tasks.length
-                    ? (tasks.filter((task) => task.done).length /
-                        tasks.length) *
-                      100
-                    : 0
-                }%`,
-              },
-            ]}
-          />
-        </View>
-
-        <Text style={styles.progressCaption}>
-          Keep going! Every completed task counts.
-        </Text>
-      </View>
-
-      <Text style={styles.sectionTitle}>Task List</Text>
-
-      {tasks.map((task) => (
-        <Pressable
-          key={task.id}
-          style={styles.taskCard}
-          onPress={() => toggleTask(task.id)}
-        >
-          <View
-            style={[
-              styles.checkbox,
-              task.done && styles.checkboxChecked,
-            ]}
-          >
-            <Text style={styles.checkboxText}>
-              {task.done ? '✓' : ''}
-            </Text>
-          </View>
-
-          <View style={styles.taskInfo}>
-            <Text
               style={[
-                styles.taskTitle,
-                task.done && styles.completedTaskTitle,
+                styles.primaryButton,
+                styles.flexButton,
+                loading &&
+                  styles.disabledButton,
               ]}
+              onPress={handleAdd}
+              disabled={loading}
             >
-              {task.title}
-            </Text>
-
-            <Text style={styles.taskProject}>
-              {task.project}
-            </Text>
-
-            <Text style={styles.taskHint}>
-              {task.done
-                ? 'Completed'
-                : 'Tap to mark complete'}
-            </Text>
-          </View>
-
-          <View
-            style={[
-              styles.priorityBadge,
-              task.priority === 'High'
-                ? styles.highPriority
-                : task.priority === 'Medium'
-                  ? styles.mediumPriority
-                  : styles.lowPriority,
-            ]}
-          >
-            <Text style={styles.priorityText}>
-              {task.priority}
-            </Text>
-          </View>
-        </Pressable>
-      ))}
-    </>
-  );
-
-  const renderProfile = () => (
-    <>
-      {renderHeader(
-        'My Profile',
-        'Your personal workspace information.'
-      )}
-
-      <View style={styles.profileCard}>
-        <View style={styles.largeProfileCircle}>
-          <Text style={styles.largeProfileInitial}>P</Text>
-        </View>
-
-        <Text style={styles.profileName}>Pavani</Text>
-        <Text style={styles.profileRole}>
-          Frontend Developer
-        </Text>
-
-        <View style={styles.profileStatus}>
-          <View style={styles.onlineDot} />
-          <Text style={styles.profileStatusText}>
-            Active
-          </Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>
-        Personal Information
-      </Text>
-
-      <View style={styles.card}>
-        {[
-          ['Full Name', 'Pavani'],
-          ['Department', 'Engineering'],
-          ['Designation', 'Frontend Developer'],
-          ['Employee ID', 'EMP-001'],
-          ['Work Mode', 'Team Workspace'],
-        ].map(([label, value], index, array) => (
-          <View
-            key={label}
-            style={[
-              styles.detailRow,
-              index === array.length - 1 &&
-                styles.lastDetailRow,
-            ]}
-          >
-            <Text style={styles.detailLabel}>
-              {label}
-            </Text>
-            <Text style={styles.detailValue}>
-              {value}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.noticeCard}>
-        <Text style={styles.noticeIcon}>🔒</Text>
-
-        <View style={styles.noticeContent}>
-          <Text style={styles.noticeTitle}>
-            Profile preview
-          </Text>
-
-          <Text style={styles.noticeDescription}>
-            These are sample profile details and are not connected to a real employee database.
-          </Text>
-        </View>
-      </View>
-    </>
-  );
-
-  const renderAddEmployee = () => (
-    <>
-      {renderHeader(
-        'Add Employee',
-        'Enter the details of a new team member.'
-      )}
-
-      <View style={styles.formCard}>
-        <Text style={styles.formHeading}>
-          Employee Information
-        </Text>
-
-        <Text style={styles.formDescription}>
-          Fields marked below are required.
-        </Text>
-
-        <Text style={styles.fieldLabel}>
-          Full Name *
-        </Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Enter employee name"
-          placeholderTextColor="#8993A7"
-          value={employeeName}
-          onChangeText={setEmployeeName}
-          autoCapitalize="words"
-        />
-
-        <Text style={styles.fieldLabel}>
-          Job Role *
-        </Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Frontend Developer"
-          placeholderTextColor="#8993A7"
-          value={employeeRole}
-          onChangeText={setEmployeeRole}
-          autoCapitalize="words"
-        />
-
-        <Text style={styles.fieldLabel}>
-          Email Address *
-        </Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="name@example.com"
-          placeholderTextColor="#8993A7"
-          value={employeeEmail}
-          onChangeText={setEmployeeEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-
-        <Pressable
-          style={styles.primaryButton}
-          onPress={addEmployee}
-        >
-          <Text style={styles.primaryButtonText}>
-            Save Employee
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.cancelButton}
-          onPress={() => {
-            setEmployeeName('');
-            setEmployeeRole('');
-            setEmployeeEmail('');
-            setActiveTab('Team');
-          }}
-        >
-          <Text style={styles.cancelButtonText}>
-            Cancel
-          </Text>
-        </Pressable>
-      </View>
-    </>
-  );
-
-  const renderScreen = () => {
-    switch (activeTab) {
-      case 'Home':
-        return renderHome();
-
-      case 'Team':
-        return renderTeam();
-
-      case 'Tasks':
-        return renderTasks();
-
-      case 'Profile':
-        return renderProfile();
-
-      case 'Add Employee':
-        return renderAddEmployee();
-
-      default:
-        return renderHome();
-    }
-  };
-
-  const tabs: { name: TabName; icon: string }[] = [
-    { name: 'Home', icon: '⌂' },
-    { name: 'Team', icon: '♧' },
-    { name: 'Tasks', icon: '☑' },
-    { name: 'Profile', icon: '○' },
-  ];
-
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#101B35"
-      />
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {renderScreen()}
-      </ScrollView>
-
-      <View style={styles.bottomNav}>
-        {tabs.map((tab) => {
-          const selected = activeTab === tab.name;
-
-          return (
-            <Pressable
-              key={tab.name}
-              style={styles.navItem}
-              onPress={() => setActiveTab(tab.name)}
-            >
-              <Text
-                style={[
-                  styles.navIcon,
-                  selected && styles.navIconSelected,
-                ]}
-              >
-                {tab.icon}
-              </Text>
-
-              <Text
-                style={[
-                  styles.navLabel,
-                  selected && styles.navLabelSelected,
-                ]}
-              >
-                {tab.name}
-              </Text>
-
-              {selected && (
-                <View style={styles.navIndicator} />
+              {loading ? (
+                <ActivityIndicator
+                  color="#fff"
+                />
+              ) : (
+                <Text
+                  style={
+                    styles.primaryButtonText
+                  }
+                >
+                  Save Employee
+                </Text>
               )}
             </Pressable>
-          );
-        })}
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+/* =========================================================
+   EDIT EMPLOYEE
+========================================================= */
+
+function EditEmployeeScreen({
+  navigation,
+  route,
+}: EditEmployeeProps) {
+  const { employee } =
+    route.params;
+
+  const [name, setName] =
+    useState(employee.name);
+
+  const [email, setEmail] =
+    useState(employee.email);
+
+  const [phone, setPhone] =
+    useState(employee.phone);
+
+  const [department, setDepartment] =
+    useState(employee.department);
+
+  const [designation, setDesignation] =
+    useState(employee.designation);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const handleUpdate = async () => {
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !department.trim() ||
+      !designation.trim()
+    ) {
+      Alert.alert(
+        'Validation',
+        'Please fill all fields.',
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const parts =
+        name.trim().split(' ');
+
+      const firstName =
+        parts.shift() || '';
+
+      const lastName =
+        parts.join(' ') ||
+        'Employee';
+
+      await updateEmployee(
+        employee.id,
+        {
+          firstName,
+          lastName,
+          email: email.trim(),
+          phone: phone.trim(),
+          company: {
+            department:
+              department.trim(),
+            title:
+              designation.trim(),
+          },
+        },
+      );
+
+      const updatedEmployee: Employee = {
+        id: employee.id,
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        department: department.trim(),
+        designation: designation.trim(),
+      };
+
+      navigation.popTo('EmployeeList', {
+        change: {
+          type: 'update',
+          employee: updatedEmployee,
+        },
+      });
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        getApiErrorMessage(err),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={
+          Platform.OS === 'ios'
+            ? 'padding'
+            : undefined
+        }
+      >
+        <ScrollView
+          contentContainerStyle={
+            styles.formContainer
+          }
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.pageTitle}>
+            Edit Employee
+          </Text>
+
+          <Text style={styles.formHint}>
+            Update the employee information
+            below.
+          </Text>
+
+          <Text style={styles.label}>
+            Name
+          </Text>
+
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Email
+          </Text>
+
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Phone
+          </Text>
+
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Department
+          </Text>
+
+          <TextInput
+            value={department}
+            onChangeText={
+              setDepartment
+            }
+            style={styles.input}
+          />
+
+          <Text style={styles.label}>
+            Designation
+          </Text>
+
+          <TextInput
+            value={designation}
+            onChangeText={
+              setDesignation
+            }
+            style={styles.input}
+          />
+
+          <View style={styles.buttonRow}>
+            <Pressable
+              style={
+                styles.secondaryButton
+              }
+              onPress={() =>
+                navigation.goBack()
+              }
+              disabled={loading}
+            >
+              <Text
+                style={
+                  styles.secondaryButtonText
+                }
+              >
+                Cancel
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={[
+                styles.primaryButton,
+                styles.flexButton,
+                loading &&
+                  styles.disabledButton,
+              ]}
+              onPress={
+                handleUpdate
+              }
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator
+                  color="#fff"
+                />
+              ) : (
+                <Text
+                  style={
+                    styles.primaryButtonText
+                  }
+                >
+                  Update
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   PROFILE
+========================================================= */
+
+
+function ProfileScreen({ navigation }: ProfileProps) {
+  const { logout } = useAuth();
+
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [selectingImage, setSelectingImage] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const selectImage = async (source: 'camera' | 'gallery') => {
+    try {
+      setSelectingImage(true);
+
+      if (source === 'camera') {
+        const permission =
+          await ImagePicker.requestCameraPermissionsAsync();
+
+        if (!permission.granted) {
+          if (!permission.canAskAgain) {
+            Alert.alert(
+              'Camera Permission Required',
+              'Please enable camera access in your device settings.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Open Settings',
+                  onPress: () => {
+                    void Linking.openSettings();
+                  },
+                },
+              ],
+            );
+          } else {
+            Alert.alert(
+              'Camera Permission Required',
+              'Camera access is needed to take a profile photo. Please allow permission and try again.',
+            );
+          }
+
+          return;
+        }
+      } else {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+          Alert.alert(
+            'Gallery Permission Required',
+            'Photo access is needed to choose a profile image. Please allow permission and try again.',
+          );
+          return;
+        }
+      }
+
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const selectedAsset = result.assets?.[0];
+
+      if (!selectedAsset?.uri) {
+        Alert.alert(
+          'Image Error',
+          'No image was selected. Please try again.',
+        );
+        return;
+      }
+
+      setImageUri(selectedAsset.uri);
+    } catch {
+      Alert.alert(
+        'Unable to Select Image',
+        'Something went wrong. Please try again.',
+      );
+    } finally {
+      setSelectingImage(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!imageUri) {
+      Alert.alert(
+        'Select an Image',
+        'Choose a profile image before uploading.',
+      );
+      return;
+    }
+
+    try {
+      setUploading(true);
+
+      const { uploadProfileImage } =
+        await import('./services/profileImage');
+
+      await uploadProfileImage(imageUri);
+
+      Alert.alert(
+        'Upload Successful',
+        'The demonstration upload request completed successfully.',
+      );
+    } catch (error) {
+      Alert.alert(
+        'Upload Failed',
+        error instanceof Error
+          ? error.message
+          : 'Please try uploading again.',
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      Alert.alert(
+        'Logout Error',
+        'Unable to log out. Please try again.',
+      );
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.profileContainer}>
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.profileImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.largeAvatar}>
+            <Text style={styles.largeAvatarText}>P</Text>
+          </View>
+        )}
+
+        <Text style={styles.profileName}>Employee User</Text>
+        <Text style={styles.profileRole}>Employee Hub</Text>
+
+        <Text style={styles.profileHint}>
+          Choose a photo for your employee profile.
+        </Text>
+
+        <View style={styles.profileActions}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => selectImage('gallery')}
+            disabled={selectingImage || uploading}
+          >
+            <Text style={styles.primaryButtonText}>
+              Choose from Gallery
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => selectImage('camera')}
+            disabled={selectingImage || uploading}
+          >
+            <Text style={styles.secondaryButtonText}>
+              Take a Photo
+            </Text>
+          </Pressable>
+        </View>
+
+        {selectingImage ? (
+          <ActivityIndicator
+            style={styles.profileLoader}
+            size="small"
+          />
+        ) : null}
+
+        <Pressable
+          style={[
+            styles.primaryButton,
+            (!imageUri || uploading) && styles.disabledButton,
+          ]}
+          onPress={handleUpload}
+          disabled={!imageUri || uploading || selectingImage}
+        >
+          {uploading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.primaryButtonText}>
+              Upload Profile Image
+            </Text>
+          )}
+        </Pressable>
+
+        <View style={styles.profileCard}>
+          <DetailRow label="Account" value="Active" />
+          <DetailRow label="Application" value="Employee Hub" />
+          <DetailRow label="Authentication" value="REST API" />
+
+          <DetailRow
+            label="Device"
+            value={
+              Device.deviceName ||
+              Device.modelName ||
+              'Device name unavailable'
+            }
+          />
+
+          <DetailRow
+            label="Operating System"
+            value={
+              [Device.osName, Device.osVersion]
+                .filter(Boolean)
+                .join(' ') || 'Unavailable'
+            }
+          />
+        </View>
+
+        <Pressable
+          style={styles.primaryButton}
+          onPress={handleLogout}
+          disabled={uploading || selectingImage}
+        >
+          <Text style={styles.primaryButtonText}>Logout</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.secondaryButtonText}>
+            Back to Home
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/* =========================================================
+   DETAIL ROW
+========================================================= */
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>
+        {label}
+      </Text>
+
+      <Text style={styles.detailValue}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/* =========================================================
+   AUTHENTICATED STACK
+========================================================= */
+
+function AuthenticatedStack() {
+  return (
+    <Stack.Navigator
+      initialRouteName="Home"
+      screenOptions={{
+        headerTitleAlign: 'center',
+        headerBackTitle: 'Back',
+        headerTintColor: '#111827',
+        headerStyle: {
+          backgroundColor: '#ffffff',
+        },
+      }}
+    >
+      <Stack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          title: 'Home',
+          headerBackVisible: false,
+        }}
+      />
+
+      <Stack.Screen
+        name="EmployeeList"
+        component={
+          EmployeeListScreen
+        }
+        options={{
+          title: 'Employee List',
+        }}
+      />
+
+      <Stack.Screen
+        name="EmployeeDetails"
+        component={
+          EmployeeDetailsScreen
+        }
+        options={{
+          title: 'Employee Details',
+        }}
+      />
+
+      <Stack.Screen
+        name="AddEmployee"
+        component={
+          AddEmployeeScreen
+        }
+        options={{
+          title: 'Add Employee',
+        }}
+      />
+
+      <Stack.Screen
+        name="EditEmployee"
+        component={
+          EditEmployeeScreen
+        }
+        options={{
+          title: 'Edit Employee',
+        }}
+      />
+
+      <Stack.Screen
+        name="Profile"
+        component={
+          ProfileScreen
+        }
+        options={{
+          title: 'Profile',
+        }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+/* =========================================================
+   UNAUTHENTICATED STACK
+========================================================= */
+
+function UnauthenticatedStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+/* =========================================================
+   NAVIGATION
+========================================================= */
+
+function AppNavigation() {
+  const {
+    isAuthenticated,
+  } = useAuth();
+
+  return (
+    <NavigationContainer>
+      {isAuthenticated ? (
+        <AuthenticatedStack />
+      ) : (
+        <UnauthenticatedStack />
+      )}
+    </NavigationContainer>
+  );
+}
+
+/* =========================================================
+   APP
+========================================================= */
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppNavigation />
+    </AuthProvider>
+  );
+}
+
+/* =========================================================
+   STYLES
+========================================================= */
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F4F6FB',
+    backgroundColor: '#f5f7fb',
   },
-  scrollView: {
+
+  flex: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 28,
+
+  flexButton: {
+    flex: 1,
   },
-  pageHeader: {
+
+  loginContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+
+  logoText: {
+    color: '#ffffff',
+    fontSize: 36,
+    fontWeight: '800',
+  },
+
+  loginTitle: {
+    fontSize: 30,
+    fontWeight: '800',
+    textAlign: 'center',
+    color: '#111827',
+  },
+
+  loginSubtitle: {
+    textAlign: 'center',
+    color: '#6b7280',
+    marginTop: 8,
+    marginBottom: 28,
+  },
+
+  formContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+
+  screenContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+
+  label: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  input: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#111827',
+  },
+
+  primaryButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    marginTop: 20,
+  },
+
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    borderRadius: 10,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    marginTop: 20,
+  },
+
+  secondaryButtonText: {
+    color: '#2563eb',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
+  errorText: {
+    color: '#dc2626',
+    marginTop: 10,
+    fontSize: 14,
+  },
+
+  demoBox: {
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    padding: 16,
+    marginTop: 24,
+  },
+
+  demoTitle: {
+    fontWeight: '800',
+    color: '#1e40af',
+    marginBottom: 8,
+  },
+
+  demoText: {
+    color: '#374151',
+    marginTop: 3,
+  },
+
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 24,
   },
-  headerTextContainer: {
-    flex: 1,
-    paddingRight: 10,
+
+  greeting: {
+    color: '#6b7280',
+    fontSize: 14,
   },
-  eyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    color: '#637394',
-    marginBottom: 7,
-  },
+
   pageTitle: {
     fontSize: 25,
     fontWeight: '800',
-    color: '#14213D',
+    color: '#111827',
   },
-  pageSubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#7A869F',
-    marginTop: 5,
+
+  logoutButton: {
+    backgroundColor: '#fee2e2',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
-  profileCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#DCE7FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileInitial: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#315DCA',
-  },
-  heroCard: {
-    backgroundColor: '#17294B',
-    borderRadius: 22,
-    padding: 22,
-    marginBottom: 25,
-  },
-  heroLabel: {
-    color: '#B9CBF5',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 12,
-  },
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 23,
-    fontWeight: '800',
-    lineHeight: 31,
-  },
-  heroDescription: {
-    color: '#D0D9EC',
-    fontSize: 13,
-    lineHeight: 21,
-    marginTop: 10,
-  },
-  heroButton: {
-    alignSelf: 'flex-start',
-    marginTop: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  heroButtonText: {
-    color: '#17294B',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#17233D',
-    marginBottom: 14,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 26,
-  },
-  statCard: {
-    flex: 1,
-    minHeight: 115,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E9EDF5',
-  },
-  statIcon: {
-    fontSize: 17,
-    color: '#4569C8',
-    marginBottom: 8,
-  },
-  statNumber: {
-    fontSize: 23,
-    fontWeight: '800',
-    color: '#17294B',
-  },
-  statLabel: {
-    fontSize: 10,
-    color: '#7B879D',
-    marginTop: 5,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  linkText: {
-    color: '#4169CE',
+
+  logoutText: {
+    color: '#b91c1c',
     fontWeight: '700',
-    fontSize: 12,
   },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#E9EDF5',
+
+  dashboardCard: {
+    backgroundColor: '#2563eb',
+    borderRadius: 16,
+    padding: 22,
     marginBottom: 18,
   },
-  employeeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F2F7',
-    gap: 11,
+
+  dashboardIcon: {
+    fontSize: 32,
   },
-  employeeAvatar: {
-    width: 43,
-    height: 43,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#23385F',
+
+  dashboardTitle: {
+    color: '#ffffff',
+    fontSize: 21,
     fontWeight: '800',
-    fontSize: 13,
-  },
-  employeeInfo: {
-    flex: 1,
-  },
-  employeeName: {
-    color: '#1C2943',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  employeeRole: {
-    color: '#8791A5',
-    fontSize: 11,
-    marginTop: 4,
-  },
-  employeeEmail: {
-    color: '#8791A5',
-    fontSize: 10,
-    marginTop: 3,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  activeBadge: {
-    backgroundColor: '#DDF8E8',
-  },
-  leaveBadge: {
-    backgroundColor: '#FFF0D6',
-  },
-  statusText: {
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  activeText: {
-    color: '#16804A',
-  },
-  leaveText: {
-    color: '#A76A12',
-  },
-  deleteButton: {
-    backgroundColor: '#FDE8E8',
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  deleteButtonText: {
-    color: '#C62828',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  confirmDeleteCard: {
-    backgroundColor: '#FFF5F5',
-    borderWidth: 1,
-    borderColor: '#F5CACA',
-    borderRadius: 12,
-    padding: 13,
-    marginBottom: 12,
-  },
-  confirmDeleteTitle: {
-    color: '#922B2B',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  confirmDeleteDescription: {
-    color: '#7A5252',
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: 5,
-  },
-  confirmActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 9,
-    marginTop: 12,
-  },
-  keepButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D7DCE5',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  keepButtonText: {
-    color: '#43516B',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  confirmDeleteButton: {
-    backgroundColor: '#C62828',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  confirmDeleteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  noticeCard: {
-    flexDirection: 'row',
-    gap: 12,
-    backgroundColor: '#FFF5D9',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 4,
-  },
-  noticeIcon: {
-    fontSize: 22,
-  },
-  noticeContent: {
-    flex: 1,
-  },
-  noticeTitle: {
-    color: '#59451B',
-    fontSize: 13,
-    fontWeight: '800',
-    marginBottom: 5,
-  },
-  noticeDescription: {
-    color: '#806D42',
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  teamSummary: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: '#17294B',
-    borderRadius: 18,
-    paddingVertical: 22,
-    marginBottom: 27,
-  },
-  summaryNumber: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  summaryLabel: {
-    color: '#C5D1E8',
-    fontSize: 9,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  summaryDivider: {
-    height: 36,
-    width: 1,
-    backgroundColor: '#405171',
-  },
-  primaryButton: {
-    backgroundColor: '#315DCA',
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  secondaryButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#315DCA',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  secondaryButtonText: {
-    color: '#315DCA',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  helperText: {
-    textAlign: 'center',
-    color: '#8993A7',
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: 5,
-    marginBottom: 16,
-  },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#DDE3EF',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    color: '#17233D',
-    fontSize: 13,
-    marginBottom: 16,
-  },
-  emptyText: {
-    textAlign: 'center',
-    paddingVertical: 22,
-    color: '#7A869F',
-  },
-  taskSummaryCard: {
-    backgroundColor: '#17294B',
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 26,
-  },
-  taskSummaryTitle: {
-    color: '#D4DEF1',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  taskSummaryNumber: {
-    color: '#FFFFFF',
-    fontSize: 23,
-    fontWeight: '800',
-    marginTop: 9,
-  },
-  progressTrack: {
-    height: 7,
-    borderRadius: 5,
-    backgroundColor: '#405171',
-    marginTop: 17,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 7,
-    borderRadius: 5,
-    backgroundColor: '#8DDDB2',
-  },
-  progressCaption: {
-    color: '#D4DEF1',
-    fontSize: 11,
     marginTop: 10,
   },
-  taskCard: {
+
+  dashboardDescription: {
+    color: '#dbeafe',
+    marginTop: 8,
+    lineHeight: 21,
+  },
+
+  menuCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E9EDF5',
-    borderRadius: 16,
-    padding: 15,
-    marginBottom: 12,
-    gap: 11,
+    borderColor: '#e5e7eb',
   },
-  checkbox: {
-    width: 23,
-    height: 23,
-    borderRadius: 7,
-    borderWidth: 1.5,
-    borderColor: '#BAC4D7',
-    alignItems: 'center',
-    justifyContent: 'center',
+
+  menuIcon: {
+    fontSize: 28,
+    width: 48,
   },
-  checkboxChecked: {
-    backgroundColor: '#2D65D8',
-    borderColor: '#2D65D8',
-  },
-  checkboxText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  taskInfo: {
+
+  menuTextContainer: {
     flex: 1,
   },
-  taskTitle: {
-    color: '#1C2943',
-    fontSize: 12,
-    fontWeight: '800',
+
+  menuTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
   },
-  completedTaskTitle: {
-    color: '#8993A7',
-    textDecorationLine: 'line-through',
-  },
-  taskProject: {
-    color: '#7F8AA0',
-    fontSize: 11,
+
+  menuSubtitle: {
+    color: '#6b7280',
     marginTop: 4,
   },
-  taskHint: {
-    color: '#4269C6',
-    fontSize: 10,
-    marginTop: 5,
+
+  arrow: {
+    fontSize: 28,
+    color: '#9ca3af',
   },
-  priorityBadge: {
-    borderRadius: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+
+  searchContainer: {
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    paddingBottom: 12,
   },
-  highPriority: {
-    backgroundColor: '#FDE2E2',
+
+  searchInput: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 15,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
-  mediumPriority: {
-    backgroundColor: '#FFF0D4',
-  },
-  lowPriority: {
-    backgroundColor: '#DDF8E8',
-  },
-  priorityText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#49546A',
-  },
-  profileCard: {
-    alignItems: 'center',
-    backgroundColor: '#17294B',
-    borderRadius: 22,
-    paddingVertical: 28,
-    marginBottom: 27,
-  },
-  largeProfileCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: '#DCE7FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-  largeProfileInitial: {
-    color: '#315DCA',
-    fontSize: 32,
-    fontWeight: '800',
-  },
-  profileName: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  profileRole: {
-    color: '#C5D1E8',
-    fontSize: 12,
-    marginTop: 6,
-  },
-  profileStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#294263',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    marginTop: 15,
-  },
-  onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#8DDDB2',
-  },
-  profileStatusText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  detailRow: {
+
+  listTopBar: {
+    padding: 18,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 17,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F2F7',
-    gap: 12,
+    borderBottomColor: '#e5e7eb',
   },
-  lastDetailRow: {
-    borderBottomWidth: 0,
+
+  listCount: {
+    color: '#6b7280',
+    marginTop: 3,
   },
-  detailLabel: {
-    color: '#7F8AA0',
-    fontSize: 12,
+
+  addButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  detailValue: {
-    color: '#1C2943',
-    fontSize: 12,
+
+  addButtonText: {
+    color: '#ffffff',
     fontWeight: '700',
-    textAlign: 'right',
-    flexShrink: 1,
   },
-  formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+
+  listContainer: {
+    padding: 14,
+    paddingBottom: 30,
+  },
+
+  employeeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E9EDF5',
-    padding: 20,
+    borderColor: '#e5e7eb',
   },
-  formHeading: {
-    color: '#17233D',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  formDescription: {
-    color: '#7A869F',
-    fontSize: 12,
-    marginTop: 6,
-    marginBottom: 22,
-  },
-  fieldLabel: {
-    color: '#263653',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  cancelButton: {
+
+  employeeMain: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: '#EEF2FA',
   },
-  cancelButtonText: {
-    color: '#43516B',
-    fontWeight: '700',
+
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  avatarText: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#1d4ed8',
+  },
+
+  employeeInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+
+  employeeName: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+  },
+
+  employeeRole: {
+    color: '#2563eb',
+    fontWeight: '600',
+    marginTop: 3,
+  },
+
+  employeeDepartment: {
+    color: '#4b5563',
+    marginTop: 2,
+  },
+
+  employeeEmail: {
+    color: '#6b7280',
+    marginTop: 3,
     fontSize: 13,
   },
-  bottomNav: {
+
+  employeeActions: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E8ECF4',
-    paddingTop: 10,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
+    marginTop: 14,
+    gap: 8,
   },
-  navItem: {
+
+  viewButton: {
     flex: 1,
+    borderWidth: 1,
+    borderColor: '#6b7280',
+    borderRadius: 8,
+    paddingVertical: 9,
     alignItems: 'center',
+  },
+
+  viewButtonText: {
+    color: '#374151',
+    fontWeight: '700',
+  },
+
+  editButton: {
+    flex: 1,
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+
+  editButtonText: {
+    color: '#1d4ed8',
+    fontWeight: '700',
+  },
+
+  deleteButton: {
+    flex: 1,
+    backgroundColor: '#fee2e2',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+
+  deleteButtonText: {
+    color: '#b91c1c',
+    fontWeight: '700',
+  },
+
+  errorBox: {
+    margin: 14,
+    padding: 14,
+    backgroundColor: '#fef2f2',
+    borderRadius: 10,
+  },
+
+  retryButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    backgroundColor: '#dc2626',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+
+  retryButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+
+  emptyList: {
+    flexGrow: 1,
     justifyContent: 'center',
-    minHeight: 53,
-    position: 'relative',
   },
-  navIcon: {
-    color: '#98A2B5',
-    fontSize: 23,
-    marginBottom: 3,
+
+  emptyContainer: {
+    alignItems: 'center',
+    padding: 30,
   },
-  navIconSelected: {
-    color: '#315DCA',
+
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
   },
-  navLabel: {
-    color: '#98A2B5',
-    fontSize: 10,
+
+  emptySubtitle: {
+    color: '#6b7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+
+  footerLoader: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f7fb',
+  },
+
+  loadingText: {
+    color: '#6b7280',
+    marginTop: 10,
+  },
+
+  detailsContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+
+  detailsAvatar: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+
+  detailsAvatarText: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#1d4ed8',
+  },
+
+  detailsName: {
+    textAlign: 'center',
+    fontSize: 25,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 14,
+  },
+
+  detailsRole: {
+    textAlign: 'center',
+    color: '#2563eb',
+    marginTop: 5,
     fontWeight: '600',
   },
-  navLabelSelected: {
-    color: '#315DCA',
+
+  detailsLoader: {
+    marginTop: 16,
+  },
+
+  detailsCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 18,
+    marginTop: 24,
+  },
+
+  detailRow: {
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+
+  detailLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+
+  detailValue: {
+    fontSize: 16,
+    color: '#111827',
+    marginTop: 4,
+  },
+
+  formHint: {
+    color: '#6b7280',
+    marginTop: 5,
+    marginBottom: 4,
+  },
+
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+
+  profileContainer: {
+    padding: 24,
+    alignItems: 'center',
+  },
+
+  largeAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  largeAvatarText: {
+    fontSize: 40,
     fontWeight: '800',
+    color: '#1d4ed8',
   },
-  navIndicator: {
-    position: 'absolute',
-    top: -10,
-    width: 24,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: '#315DCA',
+
+  profileName: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 15,
   },
+
+  profileRole: {
+    color: '#6b7280',
+    marginTop: 5,
+  },
+
+  profileCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 18,
+    marginTop: 25,
+  },
+  profileImage: {
+  width: 100,
+  height: 100,
+  borderRadius: 50,
+  backgroundColor: '#dbeafe',
+  alignSelf: 'center',
+},
+
+profileHint: {
+  color: '#6b7280',
+  marginTop: 10,
+  textAlign: 'center',
+},
+
+profileActions: {
+  width: '100%',
+  gap: 8,
+  marginTop: 10,
+},
+
+profileLoader: {
+  marginTop: 14,
+},
 });

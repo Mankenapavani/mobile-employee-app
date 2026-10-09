@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "mobile-employee-app",
@@ -6,6 +7,16 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Employee Hub to access your photos.",
+          "cameraPermission": "Allow Employee Hub to use your camera.",
+          "microphonePermission": false
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },
