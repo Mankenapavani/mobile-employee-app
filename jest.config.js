@@ -1,7 +1,6 @@
-
 module.exports = {
   preset: 'jest-expo',
-  testMatch: ['**/__tests__/**/*.test.ts'],
+  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
   clearMocks: true,
   setupFiles: ['./jest.setup.js'],
 };
