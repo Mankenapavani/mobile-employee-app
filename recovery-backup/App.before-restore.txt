@@ -1,0 +1,301 @@
+import * as ImagePicker from 'expo-image-picker';
+
+import {
+  requestNotificationPermission,
+  scheduleTestNotification,
+} from './services/notifications';
+import * as Device from 'expo-device';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+import {
+  NavigationContainer,
+} from '@react-navigation/native';
+
+import {
+  createNativeStackNavigator,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
+
+import {
+  AuthProvider,
+  useAuth,
+} from './AuthContext';
+
+import {
+  createEmployee,
+  deleteEmployee,
+  getApiErrorMessage,
+  getEmployee,
+  getEmployees,
+  updateEmployee,
+  type Employee as ApiEmployee,
+} from './services/api';
+
+/* =========================================================
+   TYPES
+========================================================= */
+
+type Employee = {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  department: string;
+  designation: string;
+};
+
+type RootStackParamList = {
+  Login: undefined;
+  Home: undefined;
+  EmployeeList: {
+    change?: {
+      type: 'add' | 'update';
+      employee: Employee;
+    };
+  } | undefined;
+  EmployeeDetails: {
+    employee: Employee;
+  };
+  AddEmployee: undefined;
+  EditEmployee: {
+    employee: Employee;
+  };
+  Profile: undefined;
+};
+
+type LoginProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Login'
+>;
+
+type HomeProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Home'
+>;
+
+type EmployeeListProps = NativeStackScreenProps<
+  RootStackParamList,
+  'EmployeeList'
+>;
+
+type EmployeeDetailsProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'EmployeeDetails'
+  >;
+
+type AddEmployeeProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'AddEmployee'
+  >;
+
+type EditEmployeeProps =
+  NativeStackScreenProps<
+    RootStackParamList,
+    'EditEmployee'
+  >;
+
+type ProfileProps = NativeStackScreenProps<
+  RootStackParamList,
+  'Profile'
+>;
+
+const Stack =
+  createNativeStackNavigator<RootStackParamList>();
+
+/* =========================================================
+   API MAPPER
+========================================================= */
+
+function mapApiEmployee(
+  user: ApiEmployee,
+): Employee {
+  return {
+    id: user.id,
+    name: `${user.firstName} ${user.lastName}`,
+    email: user.email,
+    phone: user.phone || '',
+    department:
+      user.company?.department ||
+      'Engineering',
+    designation:
+      user.company?.title ||
+      'Employee',
+  };
+}
+
+/* =========================================================
+   LOGIN
+========================================================= */
+
+function LoginScreen({}: LoginProps) {
+  const { login } = useAuth();
+
+  const [username, setUsername] =
+    useState('emilys');
+
+  const [password, setPassword] =
+    useState('emilyspass');
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const handleLogin = async () => {
+    if (
+      !username.trim() ||
+      !password.trim()
+    ) {
+      setError(
+        'Please enter username and password.',
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      await login(
+        username.trim(),
+        password.trim(),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Login failed. Please try again.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={
+          Platform.OS === 'ios'
+            ? 'padding'
+            : undefined
+        }
+      >
+        <ScrollView
+          contentContainerStyle={
+            styles.loginContainer
+          }
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.logoCircle}>
+            <Text style={styles.logoText}>
+              E
+            </Text>
+          </View>
+
+          <Text style={styles.loginTitle}>
+            Employee Hub
+          </Text>
+
+          <Text style={styles.loginSubtitle}>
+            Sign in to manage employees
+          </Text>
+
+          <Text style={styles.label}>
+            Username
+          </Text>
+
+          <TextInput
+            value={username}
+            onChangeText={setUsername}
+            placeholder="Enter username"
+            autoCapitalize="none"
+            style={styles.input}
+            editable={!loading}
+          />
+
+          <Text style={styles.label}>
+            Password
+          </Text>
+
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter password"
+            secureTextEntry
+            style={styles.input}
+            editable={!loading}
+          />
+
+          {error ? (
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+          ) : null}
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              loading &&
+                styles.disabledButton,
+            ]}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                Login
+              </Text>
+            )}
+          </Pressable>
+
+          <View style={styles.demoBox}>
+            <Text style={styles.demoTitle}>
+              Demo Login
+            </Text>
+
+            <Text style={styles.demoText}>
+              Username: emilys
+            </Text>
+
+            <Text style={styles.demoText}>
+              Password: emilyspass
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}

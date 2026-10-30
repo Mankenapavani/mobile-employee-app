@@ -173,10 +173,46 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   response => response,
   async error => {
+    const config = error.config as
+      | (typeof error.config & { _retryCount?: number })
+      | undefined;
+
+    if (!config) {
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401) {
       console.log(
         '401 Unauthorized - authentication may have expired.',
       );
+      return Promise.reject(error);
+    }
+
+    const retryCount = config._retryCount ?? 0;
+    const method = config.method?.toLowerCase();
+
+    const isNetworkOrTimeoutError =
+      !error.response ||
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ETIMEDOUT';
+
+    const isRetryableStatus = [408, 429, 500, 502, 503, 504].includes(
+      error.response?.status,
+    );
+
+    // Retry GET requests only, at most twice.
+    if (
+      method === 'get' &&
+      retryCount < 2 &&
+      (isNetworkOrTimeoutError || isRetryableStatus)
+    ) {
+      config._retryCount = retryCount + 1;
+
+      await new Promise(resolve =>
+        setTimeout(resolve, 1000 * config._retryCount!),
+      );
+
+      return api.request(config);
     }
 
     return Promise.reject(error);

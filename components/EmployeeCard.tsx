@@ -1,260 +1,138 @@
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
-  View,
-  Text,
+  Alert,
   Pressable,
   StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
-export type Employee = {
-  id: number;
-  name: string;
-  role: string;
-  email: string;
-  initials: string;
-  color: string;
-  status: 'Active' | 'On Leave';
-};
+import type { Employee } from '../types';
 
 type EmployeeCardProps = {
   employee: Employee;
-  allowDelete?: boolean;
-  isDeletePending?: boolean;
-  onRequestDelete?: (id: number) => void;
-  onCancelDelete?: () => void;
-  onConfirmDelete?: () => void;
+  onPress?: (employee: Employee) => void;
+  onView?: (employee: Employee) => void;
+  onEdit?: (employee: Employee) => void;
+  onDelete?: (employee: Employee) => void;
 };
 
-export default function EmployeeCard({
+const EmployeeCard = memo(function EmployeeCard({
   employee,
-  allowDelete = false,
-  isDeletePending = false,
-  onRequestDelete,
-  onCancelDelete,
-  onConfirmDelete,
+  onPress,
+  onView,
+  onEdit,
+  onDelete,
 }: EmployeeCardProps) {
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Employee',
+      `Are you sure you want to delete ${employee.name}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => onDelete?.(employee),
+        },
+      ],
+    );
+  };
+
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.card}>
-        <View
-          style={[
-            styles.avatar,
-            { backgroundColor: employee.color },
-          ]}
-        >
-          <Text style={styles.initials}>
-            {employee.initials}
-          </Text>
-        </View>
+    <View style={styles.card}>
+      <Pressable
+        style={styles.details}
+        onPress={() => (onPress ?? onView)?.(employee)}
+        accessibilityRole="button"
+      >
+        <Text style={styles.name}>{employee.name}</Text>
+        <Text style={styles.email}>{employee.email}</Text>
+        {!!employee.department && (
+          <Text style={styles.info}>{employee.department}</Text>
+        )}
+        {!!employee.designation && (
+          <Text style={styles.info}>{employee.designation}</Text>
+        )}
+        
+      </Pressable>
 
-        <View style={styles.details}>
-          <Text style={styles.name}>
-            {employee.name}
-          </Text>
-
-          <Text style={styles.role}>
-            {employee.role}
-          </Text>
-
-          <Text style={styles.email}>
-            {employee.email}
-          </Text>
-
-          <View
-            style={[
-              styles.statusBadge,
-              employee.status === 'Active'
-                ? styles.activeBadge
-                : styles.leaveBadge,
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                employee.status === 'Active'
-                  ? styles.activeText
-                  : styles.leaveText,
-              ]}
-            >
-              {employee.status}
-            </Text>
-          </View>
-        </View>
-
-        {allowDelete && !isDeletePending && (
+      <View style={styles.actions}>
+        {!!onView && (
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Delete ${employee.name}`}
-            style={styles.deleteButton}
-            onPress={() => onRequestDelete?.(employee.id)}
+            onPress={() => onView(employee)}
+            style={styles.button}
           >
-            <Text style={styles.deleteButtonText}>
-              Delete
-            </Text>
+            <Text style={styles.buttonText}>View</Text>
+          </Pressable>
+        )}
+        {!!onEdit && (
+          <Pressable
+            onPress={() => onEdit(employee)}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Edit</Text>
+          </Pressable>
+        )}
+        {!!onDelete && (
+          <Pressable
+            onPress={handleDelete}
+            style={[styles.button, styles.deleteButton]}
+          >
+            <Text style={styles.buttonText}>Delete</Text>
           </Pressable>
         )}
       </View>
-
-      {allowDelete && isDeletePending && (
-        <View style={styles.confirmBox}>
-          <Text style={styles.confirmTitle}>
-            Delete {employee.name}?
-          </Text>
-
-          <Text style={styles.confirmMessage}>
-            Are you sure you want to remove this employee?
-          </Text>
-
-          <View style={styles.confirmActions}>
-            <Pressable
-              style={styles.cancelButton}
-              onPress={onCancelDelete}
-            >
-              <Text style={styles.cancelText}>
-                Cancel
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={styles.confirmDeleteButton}
-              onPress={onConfirmDelete}
-            >
-              <Text style={styles.confirmDeleteText}>
-                Confirm Delete
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
-  wrapper: {
-    marginBottom: 12,
-  },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    padding: 14,
-    borderRadius: 14,
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#E5EAF2',
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  initials: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+    borderColor: '#E5E7EB',
   },
   details: {
-    flex: 1,
+    gap: 5,
   },
   name: {
-    color: '#172B4D',
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 3,
-  },
-  role: {
-    color: '#526581',
-    fontSize: 13,
-    marginBottom: 3,
+    color: '#111827',
   },
   email: {
-    color: '#8491A5',
-    fontSize: 12,
-    marginBottom: 7,
-  },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  activeBadge: {
-    backgroundColor: '#E3F8EC',
-  },
-  leaveBadge: {
-    backgroundColor: '#FFF1D6',
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  activeText: {
-    color: '#16834A',
-  },
-  leaveText: {
-    color: '#A66B00',
-  },
-  deleteButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#FFF0F0',
-    marginLeft: 8,
-  },
-  deleteButtonText: {
-    color: '#D93636',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  confirmBox: {
-    backgroundColor: '#FFF7F7',
-    borderWidth: 1,
-    borderColor: '#FFD6D6',
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 8,
-  },
-  confirmTitle: {
-    color: '#172B4D',
     fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 5,
+    color: '#4B5563',
   },
-  confirmMessage: {
-    color: '#526581',
-    fontSize: 12,
-    marginBottom: 12,
+  info: {
+    fontSize: 14,
+    color: '#6B7280',
   },
-  confirmActions: {
+  actions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
     flexWrap: 'wrap',
     gap: 8,
+    marginTop: 14,
   },
-  cancelButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: '#E9EDF4',
+  button: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
   },
-  cancelText: {
-    color: '#344563',
-    fontSize: 12,
-    fontWeight: '600',
+  deleteButton: {
+    backgroundColor: '#DC2626',
   },
-  confirmDeleteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: '#D93636',
-  },
-  confirmDeleteText: {
+  buttonText: {
     color: '#FFFFFF',
-    fontSize: 12,
     fontWeight: '600',
   },
 });
+
+export default EmployeeCard;

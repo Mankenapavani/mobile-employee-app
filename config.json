@@ -1,0 +1,23 @@
+warning: in the working copy of 'tsconfig.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/tsconfig.json b/tsconfig.json[m
+[1mindex b9567f6..bb3508a 100644[m
+[1m--- a/tsconfig.json[m
+[1m+++ b/tsconfig.json[m
+[36m@@ -1,6 +1,11 @@[m
+ {[m
+[31m-  "extends": "expo/tsconfig.base",[m
+[31m-  "compilerOptions": {[m
+[31m-    "strict": true[m
+[31m-  }[m
+[31m-}[m
+[32m+[m[32m"extends": "expo/tsconfig.base",[m
+[32m+[m[32m"compilerOptions": {[m
+[32m+[m[32m"strict": true,[m
+[32m+[m[32m"types": ["jest"][m
+[32m+[m[32m},[m
+[32m+[m[32m"exclude": [[m
+[32m+[m[32m"App.backup.tsx",[m
+[32m+[m[32m"tests"[m
+[32m+[m[32m][m
+[32m+[m[32m}[m
+\ No newline at end of file[m
