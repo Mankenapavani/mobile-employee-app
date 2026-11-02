@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -33,58 +33,76 @@ export default function EditEmployeeScreen({
   const [department, setDepartment] = useState(employee.department);
   const [designation, setDesignation] = useState(employee.designation);
   const [loading, setLoading] = useState(false);
+  const submittingRef = useRef(false);
 
   const handleUpdate = async () => {
-    if (
-      !name.trim() ||
-      !email.trim() ||
-      !phone.trim() ||
-      !department.trim() ||
-      !designation.trim()
-    ) {
-      Alert.alert('Validation', 'Please fill all fields.');
-      return;
-    }
+  // Prevent duplicate submissions from rapid taps.
+  if (submittingRef.current) {
+    return;
+  }
 
-    try {
-      setLoading(true);
+  if (
+    !name.trim() ||
+    !email.trim() ||
+    !phone.trim() ||
+    !department.trim() ||
+    !designation.trim()
+  ) {
+    Alert.alert(
+      'Validation',
+      'Please fill all fields.',
+    );
+    return;
+  }
 
-      const parts = name.trim().split(' ');
-      const firstName = parts.shift() || '';
-      const lastName = parts.join(' ') || 'Employee';
+  submittingRef.current = true;
 
-      await updateEmployee(employee.id, {
-        firstName,
-        lastName,
-        email: email.trim(),
-        phone: phone.trim(),
-        company: {
-          department: department.trim(),
-          title: designation.trim(),
-        },
-      });
+  try {
+    setLoading(true);
 
-      const updatedEmployee: Employee = {
-        id: employee.id,
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
+    const parts = name.trim().split(' ');
+
+    const firstName = parts.shift() || '';
+
+    const lastName =
+      parts.join(' ') || 'Employee';
+
+    await updateEmployee(employee.id, {
+      firstName,
+      lastName,
+      email: email.trim(),
+      phone: phone.trim(),
+      company: {
         department: department.trim(),
-        designation: designation.trim(),
-      };
+        title: designation.trim(),
+      },
+    });
 
-      navigation.popTo('EmployeeList', {
-        change: {
-          type: 'update',
-          employee: updatedEmployee,
-        },
-      });
-    } catch (err) {
-      Alert.alert('Error', getApiErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    const updatedEmployee: Employee = {
+      id: employee.id,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      department: department.trim(),
+      designation: designation.trim(),
+    };
+
+    navigation.popTo('EmployeeList', {
+      change: {
+        type: 'update',
+        employee: updatedEmployee,
+      },
+    });
+  } catch (err) {
+    Alert.alert(
+      'Error',
+      getApiErrorMessage(err),
+    );
+  } finally {
+    submittingRef.current = false;
+    setLoading(false);
+  }
+};
 
   return (
     <SafeAreaView style={styles.safeArea}>

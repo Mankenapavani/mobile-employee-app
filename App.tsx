@@ -94,9 +94,9 @@ try {
     result.pending > 0 ? 'failed' : 'success',
   );
 
-  console.log('Sync result:', result);
+  console.log('Sync completed.');
 } catch (error) {
-  console.warn('Sync failed:', error);
+  console.warn('Sync failed.');
 
   setSyncStatus('failed');
 

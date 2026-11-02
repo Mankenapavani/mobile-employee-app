@@ -57,7 +57,7 @@ export default function ProfileScreen({ navigation }: Props) {
           setImageUri(savedImage);
         }
       } catch (error) {
-        console.warn('Could not restore profile image:', error);
+        console.warn('Could not restore profile image.');
       }
     };
 
@@ -188,15 +188,13 @@ export default function ProfileScreen({ navigation }: Props) {
       if (result.canceled || !result.assets?.[0]) return;
 
       const asset = result.assets[0];
-
-      await AsyncStorage.setItem(IMAGE_STORAGE_KEY, asset.uri);
-
-      setImageUri(asset.uri);
+      
+  setImageUri(asset.uri);
       setImageSize(asset.fileSize);
 
       console.log('Selected image size in bytes:', asset.fileSize);
     } catch (error) {
-      console.error('Image selection error:', error);
+      console.error('Image selection failed.');
       Alert.alert('Error', 'Could not select the photo.');
     } finally {
       setSelectingImage(false);
@@ -230,7 +228,7 @@ export default function ProfileScreen({ navigation }: Props) {
         }`,
       );
     } catch (error) {
-      console.error('Document selection error:', error);
+      console.error('Document selection failed.');
       Alert.alert('Error', 'Could not select the document.');
     } finally {
       setSelectingDocument(false);
@@ -276,7 +274,7 @@ setImageUri(uploadedImageUrl);
         Alert.alert('Success', 'Profile image uploaded successfully.');
       }
     } catch (error) {
-      console.error('Profile image upload error:', error);
+      console.error('Profile image upload failed.');
 
       const message =
         error instanceof Error
@@ -318,9 +316,8 @@ setImageUri(uploadedImageUrl);
         Alert.alert('Success', message);
       }
 
-      console.log('Document upload result:', result);
     } catch (error) {
-      console.error('Document upload error:', error);
+      console.error('Document upload failed.');
 
       const message =
         error instanceof Error

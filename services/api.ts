@@ -1,4 +1,6 @@
-import axios from 'axios';
+import axios, {
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL =
@@ -41,7 +43,8 @@ export type CreateEmployeeInput = {
   };
 };
 
-export type UpdateEmployeeInput = Partial<CreateEmployeeInput>;
+export type UpdateEmployeeInput =
+  Partial<CreateEmployeeInput>;
 
 export type AuthResponse = {
   accessToken: string;
@@ -75,6 +78,11 @@ type PendingAction =
       createdAt: number;
     };
 
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _retryCount?: number;
+  _authRetry?: boolean;
+};
+
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
@@ -84,11 +92,35 @@ export const api = axios.create({
 });
 
 /* =========================================================
+   SESSION EXPIRY HANDLER
+========================================================= */
+
+let refreshPromise: Promise<string> | null = null;
+
+let sessionExpiredHandler:
+  | (() => void | Promise<void>)
+  | null = null;
+
+export function registerSessionExpiredHandler(
+  handler: () => void | Promise<void>,
+): () => void {
+  sessionExpiredHandler = handler;
+
+  return () => {
+    if (sessionExpiredHandler === handler) {
+      sessionExpiredHandler = null;
+    }
+  };
+}
+
+/* =========================================================
    LOCAL STORAGE HELPERS
 ========================================================= */
 
 async function readSavedEmployees(): Promise<Employee[] | null> {
-  const saved = await AsyncStorage.getItem(EMPLOYEE_STORAGE_KEY);
+  const saved = await AsyncStorage.getItem(
+    EMPLOYEE_STORAGE_KEY,
+  );
 
   if (saved === null) {
     return null;
@@ -96,13 +128,18 @@ async function readSavedEmployees(): Promise<Employee[] | null> {
 
   try {
     const employees: unknown = JSON.parse(saved);
-    return Array.isArray(employees) ? (employees as Employee[]) : null;
+
+    return Array.isArray(employees)
+      ? (employees as Employee[])
+      : null;
   } catch {
     return null;
   }
 }
 
-async function saveEmployees(employees: Employee[]): Promise<void> {
+async function saveEmployees(
+  employees: Employee[],
+): Promise<void> {
   await AsyncStorage.setItem(
     EMPLOYEE_STORAGE_KEY,
     JSON.stringify(employees),
@@ -110,7 +147,9 @@ async function saveEmployees(employees: Employee[]): Promise<void> {
 }
 
 async function readPendingActions(): Promise<PendingAction[]> {
-  const saved = await AsyncStorage.getItem(PENDING_ACTIONS_KEY);
+  const saved = await AsyncStorage.getItem(
+    PENDING_ACTIONS_KEY,
+  );
 
   if (!saved) {
     return [];
@@ -118,30 +157,43 @@ async function readPendingActions(): Promise<PendingAction[]> {
 
   try {
     const actions: unknown = JSON.parse(saved);
-    return Array.isArray(actions) ? (actions as PendingAction[]) : [];
+
+    return Array.isArray(actions)
+      ? (actions as PendingAction[])
+      : [];
   } catch {
     return [];
   }
 }
 
-async function savePendingActions(actions: PendingAction[]): Promise<void> {
+async function savePendingActions(
+  actions: PendingAction[],
+): Promise<void> {
   await AsyncStorage.setItem(
     PENDING_ACTIONS_KEY,
     JSON.stringify(actions),
   );
 }
 
-async function addPendingAction(action: PendingAction): Promise<void> {
+async function addPendingAction(
+  action: PendingAction,
+): Promise<void> {
   const actions = await readPendingActions();
+
   actions.push(action);
+
   await savePendingActions(actions);
 }
 
 function createActionId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
-function isNetworkOrServerUnavailable(error: unknown): boolean {
+function isNetworkOrServerUnavailable(
+  error: unknown,
+): boolean {
   if (!axios.isAxiosError(error)) {
     return false;
   }
@@ -149,12 +201,68 @@ function isNetworkOrServerUnavailable(error: unknown): boolean {
   return (
     !error.response ||
     error.code === 'ECONNABORTED' ||
-    error.code === 'ERR_NETWORK'
+    error.code === 'ERR_NETWORK' ||
+    error.code === 'ETIMEDOUT'
   );
 }
 
 /* =========================================================
-   REQUEST / RESPONSE INTERCEPTORS
+   REFRESH ACCESS TOKEN
+========================================================= */
+
+export async function refreshAccessToken(): Promise<string> {
+  const refreshToken = await AsyncStorage.getItem(
+    REFRESH_TOKEN_KEY,
+  );
+
+  if (!refreshToken) {
+    throw new Error('No refresh token available.');
+  }
+
+  // Use plain axios, not the intercepted api instance.
+  // This prevents recursive refresh requests on a 401.
+  const response = await axios.post<{
+    accessToken?: string;
+    refreshToken?: string;
+  }>(
+    `${API_BASE_URL}/auth/refresh`,
+    {
+      refreshToken,
+      expiresInMins: 30,
+    },
+    {
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+
+  const newAccessToken = response.data.accessToken;
+
+  if (!newAccessToken) {
+    throw new Error(
+      'The server did not return a new access token.',
+    );
+  }
+
+  await AsyncStorage.setItem(
+    TOKEN_KEY,
+    newAccessToken,
+  );
+
+  if (response.data.refreshToken) {
+    await AsyncStorage.setItem(
+      REFRESH_TOKEN_KEY,
+      response.data.refreshToken,
+    );
+  }
+
+  return newAccessToken;
+}
+
+/* =========================================================
+   REQUEST INTERCEPTOR
 ========================================================= */
 
 api.interceptors.request.use(
@@ -170,24 +278,71 @@ api.interceptors.request.use(
   error => Promise.reject(error),
 );
 
+/* =========================================================
+   RESPONSE INTERCEPTOR
+   - Automatic token refresh
+   - Retry original request once
+   - Preserve GET retry behavior
+========================================================= */
+
 api.interceptors.response.use(
   response => response,
+
   async error => {
-    const config = error.config as
-      | (typeof error.config & { _retryCount?: number })
-      | undefined;
+    const config =
+      error.config as RetryableRequestConfig | undefined;
 
     if (!config) {
       return Promise.reject(error);
     }
 
     if (error.response?.status === 401) {
-      console.log(
-        '401 Unauthorized - authentication may have expired.',
-      );
-      return Promise.reject(error);
+      const requestUrl = config.url?.toLowerCase() ?? '';
+
+      // Do not refresh for login/refresh requests.
+      if (
+        requestUrl.includes('/auth/login') ||
+        requestUrl.includes('/auth/refresh') ||
+        config._authRetry
+      ) {
+        return Promise.reject(error);
+      }
+
+      config._authRetry = true;
+
+      try {
+        // Concurrent 401 requests share the same refresh.
+        if (!refreshPromise) {
+          refreshPromise = refreshAccessToken()
+            .catch(async refreshError => {
+              await AsyncStorage.multiRemove([
+                TOKEN_KEY,
+                REFRESH_TOKEN_KEY,
+              ]);
+
+              if (sessionExpiredHandler) {
+                await sessionExpiredHandler();
+              }
+
+              throw refreshError;
+            })
+            .finally(() => {
+              refreshPromise = null;
+            });
+        }
+
+        const newToken = await refreshPromise;
+
+        config.headers.Authorization = `Bearer ${newToken}`;
+
+        // Retry this original request only once.
+        return api.request(config);
+      } catch {
+        return Promise.reject(error);
+      }
     }
 
+    // Preserve the existing GET retry logic.
     const retryCount = config._retryCount ?? 0;
     const method = config.method?.toLowerCase();
 
@@ -196,11 +351,15 @@ api.interceptors.response.use(
       error.code === 'ECONNABORTED' ||
       error.code === 'ETIMEDOUT';
 
-    const isRetryableStatus = [408, 429, 500, 502, 503, 504].includes(
-      error.response?.status,
-    );
+    const isRetryableStatus = [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504,
+    ].includes(error.response?.status);
 
-    // Retry GET requests only, at most twice.
     if (
       method === 'get' &&
       retryCount < 2 &&
@@ -209,7 +368,10 @@ api.interceptors.response.use(
       config._retryCount = retryCount + 1;
 
       await new Promise(resolve =>
-        setTimeout(resolve, 1000 * config._retryCount!),
+        setTimeout(
+          resolve,
+          1000 * config._retryCount!,
+        ),
       );
 
       return api.request(config);
@@ -227,46 +389,16 @@ export async function login(
   username: string,
   password: string,
 ): Promise<AuthResponse> {
-  const response = await api.post<AuthResponse>('/auth/login', {
-    username,
-    password,
-    expiresInMins: 30,
-  });
+  const response = await api.post<AuthResponse>(
+    '/auth/login',
+    {
+      username,
+      password,
+      expiresInMins: 30,
+    },
+  );
 
   return response.data;
-}
-
-/* =========================================================
-   REFRESH TOKEN
-========================================================= */
-
-export async function refreshAccessToken(): Promise<string> {
-  const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
-
-  if (!refreshToken) {
-    throw new Error('No refresh token available.');
-  }
-
-  const response = await api.post<{
-    accessToken: string;
-    refreshToken?: string;
-  }>('/auth/refresh', {
-    refreshToken,
-    expiresInMins: 30,
-  });
-
-  const newAccessToken = response.data.accessToken;
-
-  await AsyncStorage.setItem(TOKEN_KEY, newAccessToken);
-
-  if (response.data.refreshToken) {
-    await AsyncStorage.setItem(
-      REFRESH_TOKEN_KEY,
-      response.data.refreshToken,
-    );
-  }
-
-  return newAccessToken;
 }
 
 /* =========================================================
@@ -280,9 +412,12 @@ export async function getEmployees(
   const savedEmployees = await readSavedEmployees();
 
   try {
-    const response = await api.get<EmployeesResponse>('/users', {
-      params: { limit, skip },
-    });
+    const response = await api.get<EmployeesResponse>(
+      '/users',
+      {
+        params: { limit, skip },
+      },
+    );
 
     const freshEmployees = response.data.users;
     const employeeMap = new Map<number, Employee>();
@@ -295,14 +430,19 @@ export async function getEmployees(
       employeeMap.set(employee.id, employee);
     });
 
-    const mergedEmployees = Array.from(employeeMap.values());
+    const mergedEmployees = Array.from(
+      employeeMap.values(),
+    );
 
     await saveEmployees(mergedEmployees);
 
     return {
       ...response.data,
       users: mergedEmployees.slice(skip, skip + limit),
-      total: Math.max(response.data.total, mergedEmployees.length),
+      total: Math.max(
+        response.data.total,
+        mergedEmployees.length,
+      ),
     };
   } catch (error) {
     if (savedEmployees !== null) {
@@ -322,7 +462,9 @@ export async function getEmployees(
    GET SINGLE EMPLOYEE
 ========================================================= */
 
-export async function getEmployee(id: number): Promise<Employee> {
+export async function getEmployee(
+  id: number,
+): Promise<Employee> {
   const savedEmployees = await readSavedEmployees();
 
   const savedEmployee = savedEmployees?.find(
@@ -333,7 +475,9 @@ export async function getEmployee(id: number): Promise<Employee> {
     return savedEmployee;
   }
 
-  const response = await api.get<Employee>(`/users/${id}`);
+  const response = await api.get<Employee>(
+    `/users/${id}`,
+  );
 
   return response.data;
 }
@@ -349,7 +493,10 @@ export async function createEmployee(
   let requestSucceeded = false;
 
   try {
-    const response = await api.post<Employee>('/users/add', employee);
+    const response = await api.post<Employee>(
+      '/users/add',
+      employee,
+    );
 
     createdEmployee = {
       ...employee,
@@ -372,7 +519,8 @@ export async function createEmployee(
     };
   }
 
-  const savedEmployees = (await readSavedEmployees()) ?? [];
+  const savedEmployees =
+    (await readSavedEmployees()) ?? [];
 
   await saveEmployees([
     createdEmployee,
@@ -382,7 +530,6 @@ export async function createEmployee(
   ]);
 
   if (!requestSucceeded) {
-    console.log('Offline employee queued:', createdEmployee.id);
     await addPendingAction({
       id: createActionId(),
       type: 'create',
@@ -471,7 +618,9 @@ export async function updateEmployee(
    DELETE EMPLOYEE
 ========================================================= */
 
-export async function deleteEmployee(id: number): Promise<Employee> {
+export async function deleteEmployee(
+  id: number,
+): Promise<Employee> {
   const savedEmployees = await readSavedEmployees();
 
   if (savedEmployees === null) {
@@ -488,6 +637,7 @@ export async function deleteEmployee(id: number): Promise<Employee> {
     throw new Error('Employee not found.');
   }
 
+  // Update local UI immediately.
   await saveEmployees(
     savedEmployees.filter(item => item.id !== id),
   );
@@ -515,7 +665,7 @@ export async function deleteEmployee(id: number): Promise<Employee> {
    SYNC PENDING OFFLINE ACTIONS
 ========================================================= */
 
-export async function syncPendingActions(): Promise<{
+async function syncPendingActionsInternal(): Promise<{
   synced: number;
   pending: number;
 }> {
@@ -529,7 +679,13 @@ export async function syncPendingActions(): Promise<{
   let employees = (await readSavedEmployees()) ?? [];
   const remaining: PendingAction[] = [];
 
-  for (let index = 0; index < actions.length; index += 1) {
+  // Preserve queue order. If one action fails, retain it and
+  // all subsequent actions for the next sync attempt.
+  for (
+    let index = 0;
+    index < actions.length;
+    index += 1
+  ) {
     const action = actions[index];
 
     try {
@@ -554,6 +710,7 @@ export async function syncPendingActions(): Promise<{
             : item,
         );
 
+        // Update later actions that refer to the temporary ID.
         for (
           let laterIndex = index + 1;
           laterIndex < actions.length;
@@ -582,15 +739,13 @@ export async function syncPendingActions(): Promise<{
           `/users/${action.employeeId}`,
           action.data,
         );
-
-        synced += 1;
       } else {
         await api.delete<Employee>(
           `/users/${action.employeeId}`,
         );
-
-        synced += 1;
       }
+
+      synced += 1;
     } catch {
       remaining.push(...actions.slice(index));
       break;
@@ -604,6 +759,23 @@ export async function syncPendingActions(): Promise<{
     synced,
     pending: remaining.length,
   };
+}
+let syncPromise: Promise<{ synced: number; pending: number }> | null =
+null;
+
+export function syncPendingActions(): Promise<{
+synced: number;
+pending: number;
+}> {
+if (syncPromise) {
+return syncPromise;
+}
+
+syncPromise = syncPendingActionsInternal().finally(() => {
+syncPromise = null;
+});
+
+return syncPromise;
 }
 
 /* =========================================================
@@ -620,7 +792,9 @@ export async function getPendingActionCount(): Promise<number> {
    ERROR HANDLING
 ========================================================= */
 
-export function getApiErrorMessage(error: unknown): string {
+export function getApiErrorMessage(
+  error: unknown,
+): string {
   if (axios.isAxiosError(error)) {
     if (error.response?.status === 401) {
       return 'Your session has expired. Please login again.';
@@ -630,12 +804,19 @@ export function getApiErrorMessage(error: unknown): string {
       return error.response.data.message;
     }
 
-    if (error.code === 'ECONNABORTED') {
+    if (
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ETIMEDOUT'
+    ) {
       return 'Request timed out. Please try again.';
     }
 
     if (!error.response) {
       return 'Network error. Please check your internet connection.';
+    }
+
+    if (error.response.status >= 500) {
+      return 'The server is temporarily unavailable. Please try again.';
     }
 
     return `Request failed with status ${error.response.status}.`;

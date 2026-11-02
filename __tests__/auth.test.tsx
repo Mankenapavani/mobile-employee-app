@@ -7,10 +7,20 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 
 
 jest.mock('axios', () => ({
-  __esModule: true,
-  default: {
-    post: jest.fn(),
-  },
+__esModule: true,
+default: {
+post: jest.fn(),
+create: jest.fn(() => ({
+get: jest.fn(),
+post: jest.fn(),
+put: jest.fn(),
+delete: jest.fn(),
+interceptors: {
+request: { use: jest.fn() },
+response: { use: jest.fn() },
+},
+})),
+},
 }));
 
 function AuthConsumer() {

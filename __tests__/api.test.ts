@@ -1,7 +1,9 @@
 import { jest, describe, beforeEach, it, expect } from '@jest/globals';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getApiErrorMessage,
+  syncPendingActions,
 } from '../services/api';
 
 jest.mock('axios', () => ({
@@ -93,5 +95,18 @@ describe('getApiErrorMessage', () => {
     expect(getApiErrorMessage('unknown')).toBe(
       'Something went wrong. Please try again.',
     );
+  });
+});
+describe('syncPendingActions', () => {
+  it('reuses the same promise when sync is called concurrently', async () => {
+    const first = syncPendingActions();
+    const second = syncPendingActions();
+
+    expect(second).toBe(first);
+
+    await expect(first).resolves.toEqual({
+      synced: 0,
+      pending: 0,
+    });
   });
 });

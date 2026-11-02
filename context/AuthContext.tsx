@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { registerSessionExpiredHandler } from '../services/api';
 
 export type User = {
   firstName?: string;
@@ -66,7 +67,7 @@ export function AuthProvider({
           setUser(JSON.parse(storedUser) as User);
         }
       } catch (error) {
-        console.error('Failed to restore session:', error);
+        console.error('Failed to restore session.');
       } finally {
         setIsLoading(false);
       }
@@ -139,6 +140,7 @@ export function AuthProvider({
     },
     [user],
   );
+  
 
   // Clear the saved session and reset authentication state.
   const logout = useCallback(async () => {
@@ -153,6 +155,12 @@ export function AuthProvider({
       setUser(null);
     }
   }, []);
+    // Handle automatic logout when token refresh fails.
+  useEffect(() => {
+    return registerSessionExpiredHandler(() => {
+      void logout();
+    });
+  }, [logout]);
 
   const value: AuthContextType = {
     user,
